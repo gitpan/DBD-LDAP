@@ -17,3 +17,7 @@ Revision history for Perl extension DBD::Ldap.
 	  Also made "ldap_firstonly" to allow values > 1 to limit number of 
 	  returned valued to that number.  Previously, =1 ment 1 value, =0 ment 
 	  all values.
+0.06  Fri Jun 27
+	- Fixed Makefile.PL bug in Perl 5.8+ where make would fail with something 
+	  like "Can't use string ("*.xsi") as a HASH ref...".  Thanks to everyone 
+	  who reported this.
