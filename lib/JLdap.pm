@@ -16,7 +16,7 @@ use vars qw($VERSION);
 use vars qw ($VERSION);
 ##--
 
-$JLdap::VERSION = '0.04';
+$JLdap::VERSION = '0.05';
 
 #my $NUMERICTYPES = '^(NUMBER|FLOAT|DOUBLE|INT|INTEGER|NUM)$';       #20000224
 #my $STRINGTYPES = '^(VARCHAR2|CHAR|VARCHAR|DATE|LONG|BLOB|MEMO)$';
@@ -237,9 +237,10 @@ sub select
 			foreach my $attr (@{$self->{order}})
 			{
 				$valuesref = $entry->get($attr);
-				if ($self->{ldap_firstonly})
+				if ($self->{ldap_firstonly} && $self->{ldap_firstonly} <= scalar (@{$valuesref}))
 				{
-					$varlist[$j][$fieldnamehash{$attr}] = join($self->{ldap_outseparator}, $valuesref->[0]);
+					#$varlist[$j][$fieldnamehash{$attr}] = join($self->{ldap_outseparator}, $valuesref->[0]); #CHGD. 20010829 TO NEXT.
+					$varlist[$j][$fieldnamehash{$attr}] = join($self->{ldap_outseparator}, @{$valuesref}[0..($self->{ldap_firstonly}-1)]);
 				}
 				else
 				{

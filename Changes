@@ -12,4 +12,8 @@ Revision history for Perl extension DBD::Ldap.
 0.04  Fri Aug 10
     - Fixed bug involving autocommit on statements containing "select" in data. 
       Caught by Simon Elliott, Thanks!
-
+0.05  Mon Sep 17
+	- Fixed "ldap_..." attributes to work, ie. "ldap_firstonly" did not work.
+	  Also made "ldap_firstonly" to allow values > 1 to limit number of 
+	  returned valued to that number.  Previously, =1 ment 1 value, =0 ment 
+	  all values.

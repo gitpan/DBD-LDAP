@@ -353,6 +353,28 @@ AUTHOR AND COPYRIGHT
     Public License or the Artistic License, as specified in the Perl README
     file.
 
+CHANGES
+
+Revision history for Perl extension DBD::Ldap.
+
+0.01  Fri Jun 06 13:00:55 2000
+	- original version; created by h2xs 1.18
+0.02  Thu Jun 07
+	- Changed name from "DBD::Ldap" to "DBD::LDAP".
+0.03  Tue Jun 12
+	- Fixed bug that produced error if last attribute was null for any of 
+	  the records returned by a search.  Removed lots of commented-out code.
+	- Changed datatype from "VARCHAR" (12) to "LONG" (-1).
+	- 1st release to CPAN!
+0.04  Fri Aug 10
+    - Fixed bug involving autocommit on statements containing "select" in data. 
+      Caught by Simon Elliott, Thanks!
+0.05  Mon Sep 17
+	- Fixed "ldap_..." attributes to work, ie. "ldap_firstonly" did not work.
+	  Also made "ldap_firstonly" to allow values > 1 to limit number of 
+	  returned valued to that number.  Previously, =1 ment 1 value, =0 ment 
+	  all values.
+
 SEE ALSO
 
 	Net::LDAP(3), DBI(3), perl(1)

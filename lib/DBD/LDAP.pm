@@ -15,7 +15,7 @@ use vars qw($VERSION $err $errstr $state $sqlstate $drh $i $j $dbcnt);
 #@EXPORT = qw(
 	
 #);
-$VERSION = '0.04';
+$VERSION = '0.05';
 
 # Preloaded methods go here.
 
@@ -295,6 +295,15 @@ sub prepare
 	$csr->STORE('ldap_fetchcnt', 0);
 	$csr->STORE('ldap_reslinev','');
 
+	#NEXT 4 LINES ADDED 20010829!
+
+	$myldapref->{CaseTableNames} = $resptr->{ldap_attrhref}->{ldap_CaseTableNames};
+	$myldapref->{ldap_firstonly} = $resptr->{ldap_attrhref}->{ldap_firstonly};
+	$myldapref->{ldap_inseparator} = $resptr->{ldap_attrhref}->{ldap_inseparator} 
+			if ($resptr->{ldap_attrhref}->{ldap_inseparator});
+	$myldapref->{ldap_outseparator} = $resptr->{ldap_attrhref}->{ldap_outseparator} 
+			if ($resptr->{ldap_attrhref}->{ldap_outseparator});
+
 	$sqlstr =~ /(into|from|update|table) \s*(\w+)/gi;
 	my ($tablename) = $2;
 	$csr->STORE('ldap_base', $tablename);
@@ -534,6 +543,19 @@ sub execute
 		return undef;
     }
     my $sqlstr = $sth->{'Statement'};
+
+	#NEXT 8 LINES ADDED 20010911 TO FIX BUG WHEN QUOTED VALUES CONTAIN "?"s.
+    $sqlstr =~ s/\\\'/\x03/g;      #PROTECT ESCAPED DOUBLE-QUOTES.
+    $sqlstr =~ s/\'\'/\x04/g;      #PROTECT DOUBLED DOUBLE-QUOTES.
+	$sqlstr =~ s/\'([^\']*?)\'/
+			my ($str) = $1;
+			$str =~ s|\?|\x02|g;   #PROTECT QUESTION-MARKS WITHIN QUOTES.
+			"'$str'"/eg;
+	$sqlstr =~ s/\x04/\'\'/g;      #UNPROTECT DOUBLED DOUBLE-QUOTES.
+	$sqlstr =~ s/\x03/\\\'/g;      #UNPROTECT ESCAPED DOUBLE-QUOTES.
+
+	#CONVERT REMAINING QUESTION-MARKS TO BOUND VALUES.
+
     for (my $i = 0;  $i < $numParam;  $i++)
     {
         $sqlstr =~ s/\?/"'".$params->[$i]."'"/e;
@@ -560,7 +582,8 @@ sub execute
 		my $dB = $sth->{Database};
 		if ($dB->FETCH('AutoCommit') == 1 && $sth->FETCH('Statement') !~ /^\s*select/i)
 		{
-			#$dB->STORE('AutoCommit',0);
+			$dB->STORE('AutoCommit',0);  #ADDED 20010911 AS PER SPRITE TO MAKE AUTOCOMMIT WORK.
+			$dB->commit();               #ADDED 20010911 AS PER SPRITE TO MAKE AUTOCOMMIT WORK.
 			$dB->STORE('AutoCommit',1);  #COMMIT DONE HERE!
 		}
 		
