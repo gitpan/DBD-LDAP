@@ -15,7 +15,7 @@ use vars qw($VERSION $err $errstr $state $sqlstate $drh $i $j $dbcnt);
 #@EXPORT = qw(
 	
 #);
-$VERSION = '0.03';
+$VERSION = '0.04';
 
 # Preloaded methods go here.
 
@@ -558,9 +558,9 @@ sub execute
 	{
 		$retval = $resv[0];
 		my $dB = $sth->{Database};
-		if ($dB->FETCH('AutoCommit') == 1 && $sth->FETCH('Statement') !~ /\s*select/i)
+		if ($dB->FETCH('AutoCommit') == 1 && $sth->FETCH('Statement') !~ /^\s*select/i)
 		{
-			$dB->STORE('AutoCommit',0);
+			#$dB->STORE('AutoCommit',0);
 			$dB->STORE('AutoCommit',1);  #COMMIT DONE HERE!
 		}
 		
@@ -730,7 +730,7 @@ __END__
 
 =head1 PREREQUISITES
 
-	Convert::Ans1   (required by Net::LDAP)
+	Convert::ANS1   (required by Net::LDAP)
 	Net::LDAP
 	DBI
 	- an LDAP database to connect to.
@@ -1037,7 +1037,7 @@ END_SQL
         Example:
 
             my($dbh) = DBI->connect("DBI:LDAP:mydatabase",'me','mypswd');
-            my(@list) = $dbh->func('list_tables');
+            my(@list) = $dbh->func('tables');
 
 =head1 OTHER SUPPORTING UTILITIES
 

@@ -7,3 +7,9 @@ Revision history for Perl extension DBD::Ldap.
 0.03  Tue Jun 12
 	- Fixed bug that produced error if last attribute was null for any of 
 	  the records returned by a search.  Removed lots of commented-out code.
+	- Changed datatype from "VARCHAR" (12) to "LONG" (-1).
+	- 1st release to CPAN!
+0.04  Fri Aug 10
+    - Fixed bug involving autocommit on statements containing "select" in data. 
+      Caught by Simon Elliott, Thanks!
+

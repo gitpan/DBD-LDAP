@@ -66,7 +66,7 @@ display all "person"s with a "dn" containing ""ou=Widgets, dc=Acme, dc=com".
 
 Prerequisites
 
-	Convert::Ans1   (required by Net::LDAP)
+	Convert::ANS1   (required by Net::LDAP)
 	Net::LDAP
 	DBI
 	- an LDAP database to connect to.
@@ -314,7 +314,7 @@ Driver private methods
         Example:
 
             my($dbh) = DBI->connect("DBI:LDAP:mydatabase",'me','mypswd');
-            my(@list) = $dbh->func('list_tables');
+            my(@list) = $dbh->func('tables');
 
 Restrictions
 
