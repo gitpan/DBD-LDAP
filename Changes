@@ -1,0 +1,9 @@
+Revision history for Perl extension DBD::Ldap.
+
+0.01  Fri Jun 06 13:00:55 2000
+	- original version; created by h2xs 1.18
+0.02  Thu Jun 07
+	- Changed name from "DBD::Ldap" to "DBD::LDAP".
+0.03  Tue Jun 12
+	- Fixed bug that produced error if last attribute was null for any of 
+	  the records returned by a search.  Removed lots of commented-out code.
