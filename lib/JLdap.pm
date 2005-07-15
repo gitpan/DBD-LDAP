@@ -16,7 +16,7 @@ use vars qw($VERSION);
 use vars qw ($VERSION);
 ##--
 
-$JLdap::VERSION = '0.06';
+$JLdap::VERSION = '0.07';
 
 #my $NUMERICTYPES = '^(NUMBER|FLOAT|DOUBLE|INT|INTEGER|NUM)$';       #20000224
 #my $STRINGTYPES = '^(VARCHAR2|CHAR|VARCHAR|DATE|LONG|BLOB|MEMO)$';
@@ -63,10 +63,16 @@ sub new
 		ldap_inseparator => '|',
 		ldap_outseparator => '|',
 		ldap_firstonly => 0,
+		ldap_nullsearchvalue => ' ',  #ADDED 20040330 TO FOR BACKWARD COMPATABILITY.
 		dirty			 => 0      #JWT: 20000229: PREVENT NEEDLESS RECOMMITS.
 	    };
 
     bless $self, $class;
+
+	 for (my $i=0;$i<scalar(@_);$i+=2)   #ADDED: 20040330 TO ALLOW SETTING ATTRIBUTES IN INITIALIZATION!
+	 {
+	 	$self->{$_[$i]} = $_[$i+1];
+	 }
 
     $self->initialize;
     return $self;
@@ -163,8 +169,8 @@ sub select
 			$descorder = ($ordercols[$#ordercols] =~ s/(\w+\W+)desc(?:end|ending)?$/$1/i);  #MODIFIED 20000721 TO ALLOW "desc|descend|descending"!
 			for $i (0..$#ordercols)
 			{
-				$ordercols[$i] =~ s/\s//g;
-				$ordercols[$i] =~ s/[\(\)]+//g;
+				$ordercols[$i] =~ s/\s//ig;   #CASE-INSENSITIVITY ADDED NEXT 2: 20050416 PER PATCH BY jmorano
+				$ordercols[$i] =~ s/[\(\)]+//ig;
 			}
 		}
 		$tablehash = $dbh->FETCH('ldap_tables');
@@ -184,6 +190,7 @@ sub select
 		my ($ldap) = $csr->FETCH('ldap_ldap');
 		$objfilter ||= 'objectclass=*';
 		$objfilter = "($objfilter)"  unless ($objfilter =~ /^\(/);
+#print "<BR>-where=$extra=\n";
 		if ($extra =~ /^\s+where\s*(.+)$/i)
 		{
 			$filter = $self->parse_expression($1);
@@ -194,6 +201,7 @@ sub select
 		{
 			$filter = $objfilter;
 		}
+#print "<BR>-filter =$filter=\n";
 		my $data;
 		my (@searchops) = (
 				'base' => $base,
@@ -208,15 +216,17 @@ sub select
 			push (@searchops, ($j, $self->{$i}))  if ($self->{$i});
 		}
 		push (@searchops, ('scope', ($self->{ldap_scope} || 'one')));
+#print "--- ATTBS =$attbs=\n";
+#print "--- SEARCH OPS =".join('|',@searchops)."=\n";
 		$data = $ldap->search(@searchops) 
 				or return($self->ldap_error($@,"Search failed to return object: filter=$filter (".$data->error().")"));
-
+#print "--- data=$data=\n";
 		my ($j) = 0;
 		my (@varlist) = ();
 		while (my $entry = $data->shift_entry())
 		{
 			$dn = $entry->dn();
-			next  unless ($dn =~ /$base$/);
+			next  unless ($dn =~ /$base$/i);   #CASE-INSENSITIVITY ADDED NEXT 2: 20050416 PER PATCH BY jmorano
 			@attributes = $entry->attributes;
 			unless ($attbcnt)
 			{
@@ -469,7 +479,7 @@ sub parse_expression
 	my @QS = ();
 
 	$s=~s|\\\'|\x04|g;      #PROTECT "\'" IN QUOTES.
-			$s=~s|\\\"|\x02|g;      #PROTECT "\"" IN QUOTES.
+	$s=~s|\\\"|\x02|g;      #PROTECT "\"" IN QUOTES.
 
 	#THIS NEXT LOOP STRIPS OUT AND SAVES ALL QUOTED STRING LITERALS 
 	#TO PREVENT THEM FROM INTERFEARING WITH OTHER REGICES, IE. DON'T 
@@ -480,17 +490,25 @@ sub parse_expression
 
 	for (my $i=0;$i<=$#QS;$i++)   #ESCAPE LDAP SPECIAL-CHARACTERS.
 	{
-		$QS[$i] =~ s/([\*\(\)\+\\\<\>])/\\$1/g;
-		$QS[$i] =~ s/\\x(\d\d)/\\$1/g;   #CONVERT PERL HEX TO LDAP HEX (\X## => \##).
+		$QS[$i] =~ s/\\x([\da-fA-F][\da-fA-F])/\x05$1/g;   #PROTECT PERL HEX TO LDAP HEX (\X## => \##).
+#print "-QS($i)=$QS[$i]=\n";
+		#$QS[$i] =~ s/([\*\(\)\+\\\<\>])/\\$1/g;  #CHGD. TO NEXT. 20020409!
+		$QS[$i] =~ s/([\*\(\)\\])/"\\".unpack('H2',$1)/eg;
+		#$QS[$i] =~ s/\\x(\d\d)/\\$1/g;   #CONVERT PERL HEX TO LDAP HEX (\X## => \##).
+		$QS[$i] =~ s/\x05([\da-fA-F][\da-fA-F])/\\$1/g;   #CONVERT PERL HEX TO LDAP HEX (\X## => \##).
 	}
 
 	$indx = 0;	
 
+	#I TRIED TO ALLOWING ATTRIBUTES TO BE COMPARED W/OTHER ATTRIBUTES, BUT 
+	#(20020409), BUT APPARENTLY LDAP ONLY ALLOWS STRING CONSTANTS ON RHS OF OPERATORS!
+
+#	$indx++ while ($s =~ s/(\w+)\s*($relop)\s*(\$QS\[\d*\]|\w+)/  #THIS WAS TRIED TO COMPARE ATTRIBUTES WITH ATTRIBUTES, BUT APPARENTLY DOESN'T WORK IN LDAP!
 	$indx++ while ($s =~ s/(\w+)\s*($relop)\s*(\$QS\[\d*\])/
 			my ($one, $two, $three) = ($1, $2, $3);
 			my ($regex) = 0;
 			my ($opr) = $two;
-
+#print "-1=$one= op=$two= 3=$three=\n";
 			#CONVERT "NOT LIKE" AND "IS NOT" TO "!( = ).
 
 			if ($two =~ m!(?:not\s+like|is\s+not)!i)
@@ -521,12 +539,17 @@ sub parse_expression
 		
 				#NEXT 2 LINES INVERT EXPN. IF "X = ''" OR "X IS NULL".
 		
-				$P[$indx] = "!($P[$indx])"  if ($regex == 2 || $opr eq '!=' || ($opr eq '=' && !length($QS[$qsindx])));  #INVERT EXPRESSION IF "NOT"!
-				$P[$indx] =~ s!\!\=!\=!;   #AFTER INVERSION, FIX "!=" (NOT VALID IN LDAP!)
-				$QS[$qsindx] = '*'  unless (length($QS[$qsindx]));
+				#$P[$indx] = "!($P[$indx])"  if ($regex == 2 || $opr eq '!=' || ($opr eq '=' && !length($QS[$qsindx])));  #INVERT EXPRESSION IF "NOT"!  #MOVED NEXT 2 OUT OF IF 20020409 (ATTEMPTING ATTRIBUTE-ATTRIBUTE COMPARISENS, DIDN'T WORK, BUT LEFT THIS WAY ANYWAY!
+				#$P[$indx] =~ s!\!\=!\=!;   #AFTER INVERSION, FIX "!=" (NOT VALID IN LDAP!)
+#				$QS[$qsindx] = '*'  unless (length($QS[$qsindx]));  #CHGD. TO NEXT 20040330 TO PREVENT EXTREAMLY LONG SEARCHES WHEN SEARCHING FOR EMPTY VALUE.
+				$QS[$qsindx] = $self->{ldap_nullsearchvalue}  unless (length($QS[$qsindx]));
 			}
+#print "-bef: P($indx) =$P[$indx]=\n";
+			$P[$indx] = "!($P[$indx])"  if ($regex == 2 || $opr eq '!=' || ($opr eq '=' && !length($QS[$qsindx])));  #INVERT EXPRESSION IF "NOT"!
+			$P[$indx] =~ s!\!\=!\=!;   #AFTER INVERSION, FIX "!=" (NOT VALID IN LDAP!)
+#print "-aft: P($indx) =$P[$indx]=\n";
 			"\$P\[$indx]";
-	/e);
+	/ei);    #CASE-INSENSITIVITY ADDED NEXT 2: 20050416 PER PATCH BY jmorano
 	$tindx = 0;
 	$s = &parseParins($s);
 
@@ -546,7 +569,7 @@ sub parse_expression
 	}
 	$s =~ s/AND/and/ig;
 	$s =~ s/OR/or/ig;
-	1 while ($s =~ s/(.+?)\s*\band\b\s*(.+)/\(\&\($1\)\($2\)\)/);
+	1 while ($s =~ s/(.+?)\s*\band\b\s*(.+)/\(\&\($1\)\($2\)\)/i);   #CASE-INSENSITIVITY ADDED NEXT 2: 20050416 PER PATCH BY jmorano
 	@l = ();
 	@l = split(/\s*\bor\b\s*/i, $s);
 	if ($#l > 0)
@@ -876,7 +899,7 @@ sub delete
 		while (my $entry = $data->shift_entry())
 		{
 			$dn = $entry->dn();
-			next  unless ($dn =~ /$base$/);
+			next  unless ($dn =~ /$base$/i);   #CASE-INSENSITIVITY ADDED NEXT 2: 20050416 PER PATCH BY jmorano
 			$r1 = $entry->delete();
 			if ($autocommit)
 			{

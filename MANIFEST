@@ -5,3 +5,4 @@ Makefile.PL
 lib/JLdap.pm
 lib/DBD/LDAP.pm
 test.pl
+DBDLdap.htm

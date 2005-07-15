@@ -21,3 +21,7 @@ Revision history for Perl extension DBD::Ldap.
 	- Fixed Makefile.PL bug in Perl 5.8+ where make would fail with something 
 	  like "Can't use string ("*.xsi") as a HASH ref...".  Thanks to everyone 
 	  who reported this.
+0.07	 Sun Mar 14 2004
+	- Add compatability with Class::DBI and Netscape LDAP Server (added 
+	  patches by jmorano per bug#12269 and 12270 in rt.cpan.org).  NOTE:  
+	  Type VARCHAR is now 12 instead of -1.

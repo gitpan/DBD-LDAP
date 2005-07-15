@@ -15,7 +15,7 @@ use vars qw($VERSION $err $errstr $state $sqlstate $drh $i $j $dbcnt);
 #@EXPORT = qw(
 	
 #);
-$VERSION = '0.06';
+$VERSION = '0.07';
 
 # Preloaded methods go here.
 
@@ -580,6 +580,7 @@ sub execute
 	{
 		$retval = $resv[0];
 		my $dB = $sth->{Database};
+
 		if ($dB->FETCH('AutoCommit') == 1 && $sth->FETCH('Statement') !~ /^\s*select/i)
 		{
 			$dB->STORE('AutoCommit',0);  #ADDED 20010911 AS PER SPRITE TO MAKE AUTOCOMMIT WORK.
@@ -599,6 +600,7 @@ sub execute
 	#EVERYTHING WORKED, SO SAVE LDAP RESULT (# ROWS) AND FETCH FIELD INFO.
 	
     $sth->{'driver_rows'} = $resv[0]; # number of rows
+    $sth->{'ldap_rows'} = $resv[0]; # number of rows    #ADDED 20050416 PER PACH BY jmorano
 
     #### NOTE #### IF THIS FAILS, IT PROBABLY NEEDS TO BE "ldap_rows"?
     
@@ -611,15 +613,15 @@ sub execute
 		@{$ldapref->{NAME}} = @l;
 		for my $i (0..$#l)
 		{
-			#${$ldapref->{TYPE}}[$i] = $typehash{${$ldapref->{types}}{$l[$i]}};
-			#${$ldapref->{PRECISION}}[$i] = ${$ldapref->{lengths}}{$l[$i]};
-			#${$ldapref->{SCALE}}[$i] = ${$ldapref->{scales}}{$l[$i]};
-			#${$ldapref->{NULLABLE}}[$i] = 1;
-			#${$ldapref->{TYPE}}[$i] = 12;   #VARCHAR
-			${$ldapref->{TYPE}}[$i] = -1;   #VARCHAR
-			${$ldapref->{PRECISION}}[$i] = 255;
-			${$ldapref->{SCALE}}[$i] = 0;
+			${$ldapref->{TYPE}}[$i] = $typehash{${$ldapref->{types}}{$l[$i]}};
+			${$ldapref->{PRECISION}}[$i] = ${$ldapref->{lengths}}{$l[$i]};
+			${$ldapref->{SCALE}}[$i] = ${$ldapref->{scales}}{$l[$i]};
 			${$ldapref->{NULLABLE}}[$i] = 1;
+			#${$ldapref->{TYPE}}[$i] = 12;   #VARCHAR
+			##${$ldapref->{TYPE}}[$i] = -1;   #VARCHAR   #NEXT 4 REPLACED BY 1ST 4 PER REQUEST BY jmorano.
+			##${$ldapref->{PRECISION}}[$i] = 255;
+			##${$ldapref->{SCALE}}[$i] = 0;
+			##${$ldapref->{NULLABLE}}[$i] = 1;
 		}
 	}
 
@@ -739,11 +741,11 @@ __END__
 
 =head1 AUTHOR
 
-    This module is Copyright (C) 2000 by
+    This module is Copyright (C) 2000-2004 by
 
 		Jim Turner
 		
-        Email: jim.turner@lmco.com
+        Email:  turnerjw@wwol.com
 
     All rights reserved	Without Prejudice.
 
@@ -789,8 +791,6 @@ standard LDAP databases to Perl's database-independent database interface.
 You will need access to an existing LDAP database or set up your own using 
 an LDAP server, ie. "OpenLDAP", see (http://www.openldap.org).  
 
-JLdap.pm is included in this module as a separate file, and is required.
-
 The main advantage of DBD::LDAP is the ability to query LDAP databases via 
 standard SQL queries in leu of cryptic LDAP "filters".  LDAP is optimized for 
 quick lookup of existing data, but DBD::LDAP does support entry inserts, 
@@ -819,7 +819,11 @@ display all "person"s with a "dn" containing ""ou=Widgets, dc=Acme, dc=com".
     Installing this module (and the prerequisites from above) is quite
     simple. You just fetch the archive, extract it with
 
-        gzip -cd DBD-LDAP-0.1000.tar.gz | tar xf -
+        gzip -cd DBD-LDAP-####.tar.gz | tar xf -
+
+		-or-
+
+		tar -xzvf DBD-LDAP-####.tar.gz
 
     (this is for Unix users, Windows users would prefer WinZip or something
     similar) and then enter the following:
@@ -835,8 +839,7 @@ display all "person"s with a "dn" containing ""ou=Widgets, dc=Acme, dc=com".
 
     Note that you almost definitely need root or administrator permissions.
     If you don't have them, read the ExtUtils::MakeMaker man page for
-    details on installing in your own directories. the ExtUtils::MakeMaker
-    manpage.
+    details on installing in your own directories. 
 
 
 =head1 GETTING STARTED:
