@@ -25,3 +25,11 @@ Revision history for Perl extension DBD::Ldap.
 	- Add compatability with Class::DBI and Netscape LDAP Server (added 
 	  patches by jmorano per bug#12269 and 12270 in rt.cpan.org).  NOTE:  
 	  Type VARCHAR is now 12 instead of -1.
+0.08 	Wed Jul 19 2006
+	- Stop appending base DN (2nd field in the table definition line) 
+	  to the base insert attributes (5th field in the table definition line) 
+	  per request / patch by R.K. Owen.  The attribute "ldap_appendbase2ins" 
+	  was added for backward compatablility.  If set to 1, then pre-0.08 
+	  behaviour is used.  I couldn't find a case where this was ever actually 
+	  used, but if anyone needs it, then set this attribute in the "connect" 
+	  call.  Default is zero (new behavior - no append).

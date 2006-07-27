@@ -16,7 +16,7 @@ use vars qw($VERSION);
 use vars qw ($VERSION);
 ##--
 
-$JLdap::VERSION = '0.07';
+$JLdap::VERSION = '0.08';
 
 #my $NUMERICTYPES = '^(NUMBER|FLOAT|DOUBLE|INT|INTEGER|NUM)$';       #20000224
 #my $STRINGTYPES = '^(VARCHAR2|CHAR|VARCHAR|DATE|LONG|BLOB|MEMO)$';
@@ -64,6 +64,7 @@ sub new
 		ldap_outseparator => '|',
 		ldap_firstonly => 0,
 		ldap_nullsearchvalue => ' ',  #ADDED 20040330 TO FOR BACKWARD COMPATABILITY.
+		ldap_appendbase2ins => 0,     #ADDED 20060719 FOR BACKWARD COMPAT. - 0.08+ NO LONGER APPENDS BASE TO ALWAYSINSERT PER REQUEST.
 		dirty			 => 0      #JWT: 20000229: PREVENT NEEDLESS RECOMMITS.
 	    };
 
@@ -708,7 +709,8 @@ sub update
 		{
 			$filter = "$objfilter";
 		}
-		$alwaysinsert .= ',' . $base;
+#		$alwaysinsert .= ',' . $base;   #CHGD TO NEXT 200780719 PER REQUEST.
+		$alwaysinsert .= ',' . $base  if ($self->{ldap_appendbase2ins});
 		$alwaysinsert =~ s/\\\\/\x02/g;   #PROTECT "\\"
 		$alwaysinsert =~ s/\\\,/\x03/g;   #PROTECT "\,"
 		$alwaysinsert =~ s/\\\=/\x04/g;   #PROTECT "\="
@@ -1035,7 +1037,8 @@ J1:			for (my $i=0;$i<=$#columns;$i++)
 				}
 			}
 		}
-		$alwaysinsert .= ',' . $base;
+#		$alwaysinsert .= ',' . $base;   #CHGD TO NEXT 200780719 PER REQUEST.
+		$alwaysinsert .= ',' . $base  if ($self->{ldap_appendbase2ins});
 		my ($i1, $found, $col, $vals, $j);
 		@_ = split(/\,\s*/, $alwaysinsert);
 		while (@_)

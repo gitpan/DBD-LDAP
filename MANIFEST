@@ -6,3 +6,4 @@ lib/JLdap.pm
 lib/DBD/LDAP.pm
 test.pl
 DBDLdap.htm
+META.yml                                 Module meta-data (added by MakeMaker)

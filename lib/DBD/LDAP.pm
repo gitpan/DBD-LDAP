@@ -15,7 +15,7 @@ use vars qw($VERSION $err $errstr $state $sqlstate $drh $i $j $dbcnt);
 #@EXPORT = qw(
 	
 #);
-$VERSION = '0.07';
+$VERSION = '0.08';
 
 # Preloaded methods go here.
 
@@ -56,13 +56,13 @@ $DBD::LDAP::dr::imp_data_size = 0;
 
 sub connect
 {
-    my($drh, $dbname, $dbuser, $dbpswd, $attr, $old_driver, $connect_meth) = @_;
-    my($i, $j);
+	my($drh, $dbname, $dbuser, $dbpswd, $attr, $old_driver, $connect_meth) = @_;
+	my($i, $j);
 
-    # Avoid warnings for undefined values
+	# Avoid warnings for undefined values
 
-    $dbuser ||= '';
-    $dbpswd ||= '';
+	$dbuser ||= '';
+	$dbpswd ||= '';
 
 	$ENV{LDAP_HOME} ||= '';
 	unless (open(DBFILE, "<$ENV{LDAP_HOME}/${dbname}.ldb"))
@@ -83,7 +83,11 @@ sub connect
 	}
 	while (/^\#/);
 
+	s#^(\w+)\:\/\/#$1\x02\/\/#;  #PROTECT COLON IN PROTOCOLS (ADDED ON)
+	s#\:(\d+)#\x02$1#g;         #PROTECT COLON BEFORE PORT#S (ADDED ON)
 	my ($ldap_hostname, $ldap_root, $ldap_loginrule) = split(/\:/);
+	$ldap_hostname =~ s/\x02/\:/go;
+
 	my %ldap_tables;
 	my %ldap_ops;
 	my ($tablename,$basedn,$dnattbs,$inseparator,$outseparator);
@@ -102,7 +106,7 @@ sub connect
 		eval "\$ldap_ops{$tablename} = \{$dbdattbs\};";
 	}
 
-    #CREATE A 'BLANK' DBH
+	#CREATE A 'BLANK' DBH
 
 	if ($dbuser && $ldap_loginrule =~ /\*/)
 	{
@@ -111,29 +115,42 @@ sub connect
 		$dbuser = $ldap_loginrule;
 		$dbuser =~ s/\*/$_/g;
 	}
-    my ($privateattr) = 
-    {
+	my ($privateattr) = 
+	{
 		'Name' => $ldap_hostname,
-		'user' => $dbuser,
-		'dbpswd' => $dbpswd
-    };
+				'user' => $dbuser,
+				'dbpswd' => $dbpswd
+	};
 
-    my $this = DBI::_new_dbh($drh, 
-    {
-    		'Name' => $ldap_hostname,              #LDAP URL!
-    		'USER' => $dbuser,              #OPTIONAL, '' = ANONYMOUS!	
-    		'CURRENT_USER' => $dbuser,
-    });
+	my $this = DBI::_new_dbh($drh, 
+	{
+		'Name' => $ldap_hostname,              #LDAP URL!
+				'USER' => $dbuser,              #OPTIONAL, '' = ANONYMOUS!	
+		'CURRENT_USER' => $dbuser,
+	}
+	);
 
 	my $ldap_hostport = 389;
 	$ldap_hostport = $1  if ($ldap_hostname =~ s/\;(.*)$//);
-	my $ldap = Net::LDAP->new($ldap_hostname, port => $ldap_hostport);
+	my $ldap;
+	my @connectArgs = ($ldap_hostname);
+	push (@connectArgs, 'port', $ldap_hostport)  unless ($ldap_hostname =~ /\:\d+$/);
+	if ($ldap_hostname =~ /^ldaps/)
+	{
+		unless (defined($attr->{ldaps_capath}) && -d $attr->{ldaps_capath})
+		{
+			DBI::set_err($drh, -1, "Must specify valid path for \"ldaps_capath\" attribute when using ldaps!");
+			return undef;
+		}
+		push (@connectArgs, 'verify', 'require', 'capath', $attr->{ldaps_capath});
+	}
+	$ldap = Net::LDAP->new(@connectArgs);
 	unless ($ldap)
 	{
 		DBI::set_err($drh, -1, "Could not connect to \"$ldap_hostname\" (".$@.")!");
 		return undef;
 	}
-	
+
 	my $mesg;
 	if ($dbpswd)
 	{
@@ -303,6 +320,8 @@ sub prepare
 			if ($resptr->{ldap_attrhref}->{ldap_inseparator});
 	$myldapref->{ldap_outseparator} = $resptr->{ldap_attrhref}->{ldap_outseparator} 
 			if ($resptr->{ldap_attrhref}->{ldap_outseparator});
+	$myldapref->{ldap_appendbase2ins} = $resptr->{ldap_attrhref}->{ldap_appendbase2ins}
+			? $resptr->{ldap_attrhref}->{ldap_appendbase2ins} : 0;
 
 	$sqlstr =~ /(into|from|update|table) \s*(\w+)/gi;
 	my ($tablename) = $2;
