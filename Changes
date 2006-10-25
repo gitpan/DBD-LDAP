@@ -33,3 +33,8 @@ Revision history for Perl extension DBD::Ldap.
 	  behaviour is used.  I couldn't find a case where this was ever actually 
 	  used, but if anyone needs it, then set this attribute in the "connect" 
 	  call.  Default is zero (new behavior - no append).
+0.09  Tue Oct 24 2006
+	- Cause execute() to return "0E0" instead of raising a -402 error for 
+	  "No matching Records" (which is not an error).  This fix was made in 
+	  DBD::Sprite many moons ago, but never made it here.  Thanks to 
+	  R. K. Owen for catching this.

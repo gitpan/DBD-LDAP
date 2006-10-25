@@ -15,7 +15,7 @@ use vars qw($VERSION $err $errstr $state $sqlstate $drh $i $j $dbcnt);
 #@EXPORT = qw(
 	
 #);
-$VERSION = '0.08';
+$VERSION = '0.09';
 
 # Preloaded methods go here.
 
@@ -610,6 +610,12 @@ sub execute
 	}
 	else                     #SELECT SELECTED ZERO RECORDS.
 	{
+		if ($ldapref->{lasterror})
+		{
+			DBI::set_err($sth, $ldapref->{lasterror}, $ldapref->{lastmsg});
+			$retval = undef;
+		}
+		$retval = '0E0';
 		$resv[0] = $ldapref->{lastmsg};
 		DBI::set_err($sth, ($ldapref->{lasterror} || -402), 
 				($ldapref->{lastmsg} || 'No matching records found/modified!'));
