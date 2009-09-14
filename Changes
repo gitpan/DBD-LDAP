@@ -38,3 +38,8 @@ Revision history for Perl extension DBD::Ldap.
 	  "No matching Records" (which is not an error).  This fix was made in 
 	  DBD::Sprite many moons ago, but never made it here.  Thanks to 
 	  R. K. Owen for catching this.
+0.10  Wed Sep 9 2009
+	- Fix bug that caused queries with 3 or more operands in a where 
+	  clause without parenthesis to generate invalid filters, ie:
+	  "where a and b and c".  Also added "o" option to numerous regices 
+	  that do not contain variables to optimize for speed.

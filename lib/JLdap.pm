@@ -1,4 +1,4 @@
-#!/usr/local/bin/perl5
+#!/usr/bin/perl
 
 package JLdap;
 
@@ -16,7 +16,7 @@ use vars qw($VERSION);
 use vars qw ($VERSION);
 ##--
 
-$JLdap::VERSION = '0.09';
+$JLdap::VERSION = '0.10';
 
 #my $NUMERICTYPES = '^(NUMBER|FLOAT|DOUBLE|INT|INTEGER|NUM)$';       #20000224
 #my $STRINGTYPES = '^(VARCHAR2|CHAR|VARCHAR|DATE|LONG|BLOB|MEMO)$';
@@ -65,7 +65,8 @@ sub new
 		ldap_firstonly => 0,
 		ldap_nullsearchvalue => ' ',  #ADDED 20040330 TO FOR BACKWARD COMPATABILITY.
 		ldap_appendbase2ins => 0,     #ADDED 20060719 FOR BACKWARD COMPAT. - 0.08+ NO LONGER APPENDS BASE TO ALWAYSINSERT PER REQUEST.
-		dirty			 => 0      #JWT: 20000229: PREVENT NEEDLESS RECOMMITS.
+		dirty			 => 0,     #JWT: 20000229: PREVENT NEEDLESS RECOMMITS.
+		tindx => 0                    #REPLACES GLOBAL VARIABLE.
 	    };
 
     bless $self, $class;
@@ -142,7 +143,7 @@ sub select
 	my ($dbh) = $csr->FETCH('ldap_dbh');
 	my ($tablehash);
 
-	if ($query =~ /^select tables$/i)
+	if ($query =~ /^select tables$/io)
 	{
 		$tablehash = $dbh->FETCH('ldap_tablenames');
 		$self->{use_fields} = 'TABLE_NAME';  #ADDED 20000224 FOR DBI!
@@ -170,18 +171,18 @@ sub select
 			$descorder = ($ordercols[$#ordercols] =~ s/(\w+\W+)desc(?:end|ending)?$/$1/i);  #MODIFIED 20000721 TO ALLOW "desc|descend|descending"!
 			for $i (0..$#ordercols)
 			{
-				$ordercols[$i] =~ s/\s//ig;   #CASE-INSENSITIVITY ADDED NEXT 2: 20050416 PER PATCH BY jmorano
-				$ordercols[$i] =~ s/[\(\)]+//ig;
+				$ordercols[$i] =~ s/\s//igo;   #CASE-INSENSITIVITY ADDED NEXT 2: 20050416 PER PATCH BY jmorano
+				$ordercols[$i] =~ s/[\(\)]+//igo;
 			}
 		}
 		$tablehash = $dbh->FETCH('ldap_tables');
 		return (-524)  unless ($tablehash->{$table});
 
-		my ($base, $objfilter, $dnattbs, $allattbs, $alwaysinsert) = split(/\:/,$tablehash->{$table});
-		$attbs = $allattbs  if ($allattbs && $attbs =~ s/\*//);
-		$attbs =~ s/\s//g;
+		my ($base, $objfilter, $dnattbs, $allattbs, $alwaysinsert) = split(/\:/o ,$tablehash->{$table});
+		$attbs = $allattbs  if ($allattbs && $attbs =~ s/\*//o);
+		$attbs =~ s/\s//go;
 		$attbs =~ tr/A-Z/a-z/;
-		@{$self->{order}} = split(/,/, $attbs)  unless ($attbs eq '*');
+		@{$self->{order}} = split(/,/o, $attbs)  unless ($attbs eq '*');
 		my $fieldnamehash = ();
 		my $attbcnt = 0;
 		foreach my $i (@{$self->{order}})
@@ -190,12 +191,12 @@ sub select
 		}
 		my ($ldap) = $csr->FETCH('ldap_ldap');
 		$objfilter ||= 'objectclass=*';
-		$objfilter = "($objfilter)"  unless ($objfilter =~ /^\(/);
+		$objfilter = "($objfilter)"  unless ($objfilter =~ /^\(/o);
 #print "<BR>-where=$extra=\n";
-		if ($extra =~ /^\s+where\s*(.+)$/i)
+		if ($extra =~ /^\s+where\s*(.+)$/io)
 		{
 			$filter = $self->parse_expression($1);
-			$filter = '('.$filter.')'  unless ($filter =~ /^\(/);
+			$filter = '('.$filter.')'  unless ($filter =~ /^\(/o);
 			$filter = "(&$objfilter$filter)";
 		}
 		else
@@ -207,13 +208,13 @@ sub select
 		my (@searchops) = (
 				'base' => $base,
 				'filter' => $filter,
-				'attrs' => [split(/\,/, $attbs)]
+				'attrs' => [split(/\,/o, $attbs)]
 		);
 		foreach my $i (qw(ldap_sizelimit ldap_timelimit deref typesonly 
 		callback))
 		{
 			$j = $i;
-			$j =~ s/^ldap_//;
+			$j =~ s/^ldap_//o;
 			push (@searchops, ($j, $self->{$i}))  if ($self->{$i});
 		}
 		push (@searchops, ('scope', ($self->{ldap_scope} || 'one')));
@@ -247,15 +248,21 @@ sub select
 			$i = 0;
 			foreach my $attr (@{$self->{order}})
 			{
-				$valuesref = $entry->get($attr);
+#				$valuesref = $entry->get($attr);   #CHGD. TO NEXT 20090914 PER PATCH FROM G. KORSANI:
+				$valuesref = $entry->get_value($attr);
 				if ($self->{ldap_firstonly} && $self->{ldap_firstonly} <= scalar (@{$valuesref}))
 				{
 					#$varlist[$j][$fieldnamehash{$attr}] = join($self->{ldap_outseparator}, $valuesref->[0]); #CHGD. 20010829 TO NEXT.
 					$varlist[$j][$fieldnamehash{$attr}] = join($self->{ldap_outseparator}, @{$valuesref}[0..($self->{ldap_firstonly}-1)]);
 				}
-				else
+#				else         #CHGD. TO NEXT 20090914 PER PATCH FROM G. KORSANI:
+				elsif (defined $valuesref)
 				{
 					$varlist[$j][$fieldnamehash{$attr}] = join($self->{ldap_outseparator}, @$valuesref) || '';
+				}
+				else         #ADDED 20090914 PER PATCH FROM G. KORSANI
+				{
+					$varlist[$j][$fieldnamehash{$attr}] = '';
 				}
 				unless ($valuesref[0])
 				{
@@ -276,7 +283,7 @@ sub select
 			@varlist = ();
 			foreach my $i (keys(%disthash))
 			{
-				push (@varlist, [split(/\x02/, $i, -1)]);
+				push (@varlist, [split(/\x02/o, $i, -1)]);
 			}
 		}
 		if ($#ordercols >= 0)   #SORT 'EM!
@@ -342,8 +349,8 @@ sub sort_elements
 	$i = $lo;
 	foreach $line (@sortedlist)
 	{
-		($linedata,$vectorid) = split(/\x04/,$line);
-		(@elements) = split(/\x02/,$linedata);
+		($linedata,$vectorid) = split(/\x04/o, $line);
+		(@elements) = split(/\x02/o, $linedata);
 		$t = $#elements  unless $t;
 		for ($j=$t;$j>=1;$j--)
 		{
@@ -351,7 +358,7 @@ sub sort_elements
 			${$_[$j]}[$i] = $elements[$j];
 		}
 		$sortvector[$i] = $vectorid;
-		$elements[0] =~ s/\s+//g;
+		$elements[0] =~ s/\s+//go;
 		${$_[0]}[$i] = $elements[$j];
 		++$i;
 	}
@@ -465,8 +472,8 @@ sub parse_expression
 {
 	my ($self, $s) = @_;
 
-	$s =~ s/\s+$//;     #STRIP OFF LEADING AND TRAILING WHITESPACE.
-	$s =~ s/^\s+//;
+	$s =~ s/\s+$//o;     #STRIP OFF LEADING AND TRAILING WHITESPACE.
+	$s =~ s/^\s+//o;
 	return unless ($s);
 
 
@@ -476,11 +483,13 @@ sub parse_expression
 	my $indx = 0;
 
 	my @P = ();
+	my @T3 = ();            #PROTECTS MULTI-WAY RELOP EXPRESSIONS, IE. (A AND B AND C)
+	my $t3indx = 0;
 	@T = ();
 	my @QS = ();
 
-	$s=~s|\\\'|\x04|g;      #PROTECT "\'" IN QUOTES.
-	$s=~s|\\\"|\x02|g;      #PROTECT "\"" IN QUOTES.
+	$s=~s|\\\'|\x04|go;      #PROTECT "\'" IN QUOTES.
+	$s=~s|\\\"|\x02|go;      #PROTECT "\"" IN QUOTES.
 
 	#THIS NEXT LOOP STRIPS OUT AND SAVES ALL QUOTED STRING LITERALS 
 	#TO PREVENT THEM FROM INTERFEARING WITH OTHER REGICES, IE. DON'T 
@@ -492,11 +501,10 @@ sub parse_expression
 	for (my $i=0;$i<=$#QS;$i++)   #ESCAPE LDAP SPECIAL-CHARACTERS.
 	{
 		$QS[$i] =~ s/\\x([\da-fA-F][\da-fA-F])/\x05$1/g;   #PROTECT PERL HEX TO LDAP HEX (\X## => \##).
-#print "-QS($i)=$QS[$i]=\n";
 		#$QS[$i] =~ s/([\*\(\)\+\\\<\>])/\\$1/g;  #CHGD. TO NEXT. 20020409!
 		$QS[$i] =~ s/([\*\(\)\\])/"\\".unpack('H2',$1)/eg;
 		#$QS[$i] =~ s/\\x(\d\d)/\\$1/g;   #CONVERT PERL HEX TO LDAP HEX (\X## => \##).
-		$QS[$i] =~ s/\x05([\da-fA-F][\da-fA-F])/\\$1/g;   #CONVERT PERL HEX TO LDAP HEX (\X## => \##).
+		$QS[$i] =~ s/\x05([\da-fA-F][\da-fA-F])/\\$1/go;   #CONVERT PERL HEX TO LDAP HEX (\X## => \##).
 	}
 
 	$indx = 0;	
@@ -509,15 +517,14 @@ sub parse_expression
 			my ($one, $two, $three) = ($1, $2, $3);
 			my ($regex) = 0;
 			my ($opr) = $two;
-#print "-1=$one= op=$two= 3=$three=\n";
 			#CONVERT "NOT LIKE" AND "IS NOT" TO "!( = ).
 
-			if ($two =~ m!(?:not\s+like|is\s+not)!i)
+			if ($two =~ m!(?:not\s+like|is\s+not)!io)
 			{
 				$two = '=';
 				$regex = 2;
 			}
-			elsif ($two =~ m!(?:like|is)!i)  #CONVERT "LIKE" AND "IS" TO "=".
+			elsif ($two =~ m!(?:like|is)!io)  #CONVERT "LIKE" AND "IS" TO "=".
 			{
 				$two = '=';
 				$regex = 1;
@@ -532,55 +539,31 @@ sub parse_expression
 				$qsindx = $1;
 				if ($regex > 0)
 				{
-					if ($opr !~ m!is!i)
+					if ($opr !~ m!is!io)
 					{
-						$QS[$qsindx] =~ s!\%!\*!g;     #FIX WILDCARD.  NOTE - NO FIX FOR "_"!
+						$QS[$qsindx] =~ s!\%!\*!go;     #FIX WILDCARD.  NOTE - NO FIX FOR "_"!
 					}
 				}
-		
-				#NEXT 2 LINES INVERT EXPN. IF "X = ''" OR "X IS NULL".
-		
-				#$P[$indx] = "!($P[$indx])"  if ($regex == 2 || $opr eq '!=' || ($opr eq '=' && !length($QS[$qsindx])));  #INVERT EXPRESSION IF "NOT"!  #MOVED NEXT 2 OUT OF IF 20020409 (ATTEMPTING ATTRIBUTE-ATTRIBUTE COMPARISENS, DIDN'T WORK, BUT LEFT THIS WAY ANYWAY!
-				#$P[$indx] =~ s!\!\=!\=!;   #AFTER INVERSION, FIX "!=" (NOT VALID IN LDAP!)
-#				$QS[$qsindx] = '*'  unless (length($QS[$qsindx]));  #CHGD. TO NEXT 20040330 TO PREVENT EXTREAMLY LONG SEARCHES WHEN SEARCHING FOR EMPTY VALUE.
 				$QS[$qsindx] = $self->{ldap_nullsearchvalue}  unless (length($QS[$qsindx]));
 			}
-#print "-bef: P($indx) =$P[$indx]=\n";
 			$P[$indx] = "!($P[$indx])"  if ($regex == 2 || $opr eq '!=' || ($opr eq '=' && !length($QS[$qsindx])));  #INVERT EXPRESSION IF "NOT"!
-			$P[$indx] =~ s!\!\=!\=!;   #AFTER INVERSION, FIX "!=" (NOT VALID IN LDAP!)
-#print "-aft: P($indx) =$P[$indx]=\n";
+			$P[$indx] =~ s!\!\=!\=!o;   #AFTER INVERSION, FIX "!=" (NOT VALID IN LDAP!)
 			"\$P\[$indx]";
 	/ei);    #CASE-INSENSITIVITY ADDED NEXT 2: 20050416 PER PATCH BY jmorano
-	$tindx = 0;
-	$s = &parseParins($s);
+	$self->{tindx} = 0;
+	$s = &parseParins($self, $s);
 
 	for (my $i=0;$i<=$#T;$i++)
 	{
-		1 while ($T[$i] =~ s/(.+?)\s*\band\b\s*(.+)/\&\($1\)\($2\)/i);
-		@l = ();
-		@l = split(/\s*\bor\b\s*/i, $T[$i]);
-		if ($#l > 0)
-		{
-			$T[$i] = '|';
-			while (@l)
-			{
-				$T[$i] .= '('.shift(@l).')';
-			}
-		}
+#		1 while ($T[$i] =~ s/(.+?)\s*\band\b\s*(.+)/\&\($1\)\($2\)/i);
+		1 while ($T[$i] =~ s/([^\(\)]+)\s*\band\b\s*([^\(\)]+)(?:and|or)?/\&\($1\)\($2\)/i);
+		1 while ($T[$i] =~ s/([^\(\)]+)\s*\bor\b\s*([^\(\)]+)(?:and|or)?/\|\($1\)\($2\)/i);
 	}
-	$s =~ s/AND/and/ig;
-	$s =~ s/OR/or/ig;
-	1 while ($s =~ s/(.+?)\s*\band\b\s*(.+)/\(\&\($1\)\($2\)\)/i);   #CASE-INSENSITIVITY ADDED NEXT 2: 20050416 PER PATCH BY jmorano
-	@l = ();
-	@l = split(/\s*\bor\b\s*/i, $s);
-	if ($#l > 0)
-	{
-		$s = '|';
-		while (@l)
-		{
-			$s .= '('.shift(@l).')';
-		}
-	}
+	$s =~ s/AND/and/igo;
+	$s =~ s/OR/or/igo;
+#	1 while ($s =~ s/(.+?)\s*\band\b\s*(.+)/\(\&\($1\)\($2\)\)/i);   #CASE-INSENSITIVITY ADDED NEXT 2: 20050416 PER PATCH BY jmorano
+	1 while ($s =~ s/([^\(\)]+)\s*\band\b\s*([^\(\)]+)(?:and|or)?/\&\($1\)\($2\)/i);   #CASE-INSENSITIVITY ADDED NEXT 2: 20050416 PER PATCH BY jmorano
+	1 while ($s =~ s/([^\(\)]+)\s*\bor\b\s*([^\(\)]+)(?:and|or)?/\|\($1\)\($2\)/i);   #CASE-INSENSITIVITY ADDED NEXT 2: 20050416 PER PATCH BY jmorano
 	1 while ($s =~ s/\bnot\b\s*([^\s\)]+)?/\!\($1\)/);
 	1 while ($s =~ s/\$T\[(\d+)\]/$T[$1]/g);
 	$s =~ s/(\w+)\s+is\s+not\s+null?/$1\=\*/gi;
@@ -589,19 +572,20 @@ sub parse_expression
 	#CONVERT SQL WILDCARDS TO PERL REGICES.
 
 	1 while ($s =~ s/\$P\[(\d+)\]/$P[$1]/g);
-	$s =~ s/ +//g;
+	$s =~ s/ +//go;
 	1 while ($s =~ s/\$QS\[(\d+)\]/$QS[$1]/g);
-	$s =~ s/\x04/\'/g;    #UNPROTECT AND UNESCAPE QUOTES WITHIN QUOTES.
-
+	$s =~ s/\x04/\'/go;    #UNPROTECT AND UNESCAPE QUOTES WITHIN QUOTES.
+	$s = '(' . $s . ')'  unless ($s =~ /^\(/o);
 	return $s;
 }
 
 sub parseParins
 {
+	my $self = shift;
 	my $s = shift;
 
-	$tindx++ while ($s =~ s/\(([^\(\)]+)\)/
-			$T[$tindx] = &parseParins($1); "\$T\[$tindx]"
+	$self->{tindx}++ while ($s =~ s/\(([^\(\)]+)\)/
+			$T[$self->{tindx}] = &parseParins($self, $1); "\$T\[$self->{tindx}]"
 	/e);
 	return $s;
 }
@@ -641,7 +625,7 @@ sub update
 		#ADDED IF-STMT 20010418 TO CATCH 
 		#PARENTHESIZED SET-CLAUSES (ILLEGAL IN ORACLE & CAUSE WIERD PARSING ERRORS!)
 
-		if ($extra =~ /^\(.+\)\s*where/)
+		if ($extra =~ /^\(.+\)\s*where/o)
 		{
 			$errdetails = 'parenthesis around SET clause?';
 			return (-504);
@@ -657,12 +641,12 @@ sub update
 
 		$all_columns = {};
 
-		$extra =~ s/\\\\/\x02/g;         #PROTECT "\\"
-		#1$extra =~ s/\'\'/\x03\x03/g;    #PROTECT '', AND \'.
-		$extra =~ s/\\\'/\x03/g;    #PROTECT '', AND \'.
+		$extra =~ s/\\\\/\x02/go;         #PROTECT "\\"
+		#1$extra =~ s/\'\'/\x03\x03/go;    #PROTECT '', AND \'.
+		$extra =~ s/\\\'/\x03/go;    #PROTECT '', AND \'.
 
-		$extra =~ s/^\s+//;  #STRIP OFF SURROUNDING SPACES.
-		$extra =~ s/\s+$//;
+		$extra =~ s/^\s+//o;  #STRIP OFF SURROUNDING SPACES.
+		$extra =~ s/\s+$//o;
 
 		#NOW TEMPORARILY PROTECT COMMAS WITHIN (), IE. FN(ARG1,ARG2).
 
@@ -683,9 +667,9 @@ sub update
 		@expns = split(',',$extra);
 		for ($i=0;$i<=$#expns;$i++)  #PROTECT "WHERE" IN QUOTED VALUES.
 		{
-			$expns[$i] =~ s/\x05/,/g;
-			$expns[$i] =~ s/\x06/\(/g;
-			$expns[$i] =~ s/\x07/\)/g;
+			$expns[$i] =~ s/\x05/,/go;
+			$expns[$i] =~ s/\x06/\(/go;
+			$expns[$i] =~ s/\x07/\)/go;
 			$expns[$i] =~ s/\=\s*'([^']*?)where([^']*?)'/\='$1\x05$2'/gi;
 			$expns[$i] =~ s/\'(.*?)\'/my ($j)=$1; 
 					$j=~s|where|\x05|g; 
@@ -694,15 +678,15 @@ sub update
 		}
 		$extra = $expns[$#expns];    #EXTRACT WHERE-CLAUSE, IF ANY.
 		$filter = ($extra =~ s/(.*)where(.+)$/where$1/i) ? $2 : '';
-		$filter =~ s/\s+//;
+		$filter =~ s/\s+//o;
 		$expns[$#expns] =~ s/\s*where(.+)$//i;   #20000108 REP. PREV. LINE 2FIX BUG IF LAST COLUMN CONTAINS SINGLE QUOTES.
 		$column = $self->{column};
 		$objfilter ||= 'objectclass=*';
-		$objfilter = "($objfilter)"  unless ($objfilter =~ /^\(/);
+		$objfilter = "($objfilter)"  unless ($objfilter =~ /^\(/o);
 		if ($filter)
 		{
 			$filter = $self->parse_expression ($filter);
-			$filter = '('.$filter.')'  unless ($filter =~ /^\(/);
+			$filter = '('.$filter.')'  unless ($filter =~ /^\(/o);
 			$filter = "(&$objfilter$filter)";
 		}
 		else
@@ -711,15 +695,15 @@ sub update
 		}
 #		$alwaysinsert .= ',' . $base;   #CHGD TO NEXT 200780719 PER REQUEST.
 		$alwaysinsert .= ',' . $base  if ($self->{ldap_appendbase2ins});
-		$alwaysinsert =~ s/\\\\/\x02/g;   #PROTECT "\\"
-		$alwaysinsert =~ s/\\\,/\x03/g;   #PROTECT "\,"
-		$alwaysinsert =~ s/\\\=/\x04/g;   #PROTECT "\="
+		$alwaysinsert =~ s/\\\\/\x02/go;   #PROTECT "\\"
+		$alwaysinsert =~ s/\\\,/\x03/go;   #PROTECT "\,"
+		$alwaysinsert =~ s/\\\=/\x04/go;   #PROTECT "\="
 		my ($i1, $col, $vals, $j, @l);
 		for ($i=0;$i<=$#expns;$i++)  #EXTRACT FIELD NAMES AND 
 	                             #VALUES FROM EACH EXPRESSION.
 		{
-			$expns[$i] =~ s/\x03/\\\'/g;    #UNPROTECT '', AND \'.
-			$expns[$i] =~ s/\x02/\\\\/g;    #UNPROTECT "\\".
+			$expns[$i] =~ s/\x03/\\\'/go;    #UNPROTECT '', AND \'.
+			$expns[$i] =~ s/\x02/\\\\/go;    #UNPROTECT "\\".
 			$expns[$i] =~ s!\s*($column)\s*=\s*(.+)$!
 					my ($var) = $1;
 					my ($val) = $2;
@@ -727,18 +711,18 @@ sub update
 					$val = &pscolfn($self,$val)  if ($val =~ "$column\.$psuedocols");
 					$var =~ tr/A-Z/a-z/;
 					$val =~ s|%\0(\d+): |pack("C",$1)|ge;
-					$val =~ s/^\'//;             #NEXT 2 ADDED 20010530 TO STRIP EXCESS QUOTES.
+					$val =~ s/^\'//o;             #NEXT 2 ADDED 20010530 TO STRIP EXCESS QUOTES.
 					$val =~ s/([^\\\'])\'$/$1/;
-					$val =~ s/\'$//;
+					$val =~ s/\'$//o;
 					$all_columns->{$var} = $val;
-					@_ = split(/\,\s*/, $alwaysinsert);
+					@_ = split(/\,\s*/o, $alwaysinsert);
 					while (@_)
 					{
-						($col, $vals) = split(/\=/, shift);
+						($col, $vals) = split(/\=/o, shift);
 						next  unless ($col eq $var);
-						$vals =~ s/\x04/\\\=/g;       #UNPROTECT "\="
-						$vals =~ s/\x03/\\\,/g;       #UNPROTECT "\,"
-						$vals =~ s/\x02/\\\\/g;       #UNPROTECT "\\"
+						$vals =~ s/\x04/\\\=/go;       #UNPROTECT "\="
+						$vals =~ s/\x03/\\\,/go;       #UNPROTECT "\,"
+						$vals =~ s/\x02/\\\\/go;       #UNPROTECT "\\"
 						@l = split(/\Q$self->{ldap_inseparator}\E/, $vals);
 VALUE:							for (my $j=0;$j<=$#l;$j++)
 						{
@@ -748,8 +732,8 @@ VALUE:							for (my $j=0;$j<=$#l;$j++)
 							$all_columns->{$var} .= $l[$j];
 						}
 					}
-					$all_columns->{$var} =~ s/\x02/\\\\/g;
-					$all_columns->{$var} =~ s/\x03/\'/g;   #20000108 REPL. PREV. LINE - NO NEED TO DOUBLE QUOTES (WE ESCAPE THEM) - THIS AIN'T ORACLE.
+					$all_columns->{$var} =~ s/\x02/\\\\/go;
+					$all_columns->{$var} =~ s/\x03/\'/go;   #20000108 REPL. PREV. LINE - NO NEED TO DOUBLE QUOTES (WE ESCAPE THEM) - THIS AIN'T ORACLE.
 			!e;
 		}
 
@@ -763,7 +747,7 @@ VALUE:							for (my $j=0;$j<=$#l;$j++)
 		callback))
 		{
 			$j = $i;
-			$j =~ s/^ldap_//;
+			$j =~ s/^ldap_//o;
 			push (@searchops, ($j, $self->{$i}))  if ($self->{$i});
 		}
 		push (@searchops, ('scope', ($self->{ldap_scope} || 'one')));
@@ -773,13 +757,13 @@ VALUE:							for (my $j=0;$j<=$#l;$j++)
 		$dbh = $csr->FETCH('ldap_dbh');
 		my ($autocommit) = $dbh->FETCH('AutoCommit');
 		my ($commitqueue) = $dbh->FETCH('ldap_commitqueue')  unless ($autocommit);
-		my (@dnattbs) = split(/\,/, $dnattbs);
+		my (@dnattbs) = split(/\,/o, $dnattbs);
 		my ($changedn);
 		while (my $entry = $data->shift_entry())
 		{
 			$dn = $entry->dn();
-			$dn =~ s/\\/\x02/g;     #PROTECT "\";
-			$dn =~ s/\\\,/\x03/g;   #PROTECT "\,";
+			$dn =~ s/\\/\x02/go;     #PROTECT "\";
+			$dn =~ s/\\\,/\x03/go;   #PROTECT "\,";
 			$changedn = 0;
 I:			foreach my $i (@dnattbs)
 			{
@@ -794,11 +778,11 @@ I:			foreach my $i (@dnattbs)
 				}
 			}
 			$dn =~ s/(?:\,\s*)$base$//;
-			$dn =~ s/\x03/\\\,/g;     #UNPROTECT "\,";
-			$dn =~ s/\x02/\\/g;     #UNPROTECT "\";
+			$dn =~ s/\x03/\\\,/go;     #UNPROTECT "\,";
+			$dn =~ s/\x02/\\/go;     #UNPROTECT "\";
 			foreach my $i (keys %$all_columns)
 			{
-				$all_columns->{$i} =~ s/(?:\\|\')\'/\'/g;   #1UNESCAPE QUOTES IN VALUES.
+				$all_columns->{$i} =~ s/(?:\\|\')\'/\'/go;   #1UNESCAPE QUOTES IN VALUES.
 				@_ = split(/\Q$self->{ldap_inseparator}\E/, $all_columns->{$i});
 				if (!@_)
 				{
@@ -876,18 +860,18 @@ sub delete
 		return (-524)  unless ($tablehash->{$table});
 		my ($base, $objfilter, $dnattbs, $allattbs, $alwaysinsert) = split(/\:/,$tablehash->{$table});
 		$objfilter ||= 'objectclass=*';
-		$objfilter = "($objfilter)"  unless ($objfilter =~ /^\(/);
-		if ($wherepart =~ /\S/)
+		$objfilter = "($objfilter)"  unless ($objfilter =~ /^\(/o);
+		if ($wherepart =~ /\S/o)
 		{
 			$filter = $self->parse_expression ($wherepart);
-			$filter = '('.$filter.')'  unless ($filter =~ /^\(/);
+			$filter = '('.$filter.')'  unless ($filter =~ /^\(/o);
 			$filter = "(&$objfilter$filter)";
 		}
 		else
 		{
 			$filter = "$objfilter";
 		}
-		$filter = '('.$filter.')'  unless ($filter =~ /^\(/);
+		$filter = '('.$filter.')'  unless ($filter =~ /^\(/o);
 
 		$data = $ldap->search(
 				base   => $base,
@@ -948,31 +932,31 @@ sub insert
 		$self->{file} = $table;
 		return (-524)  unless ($tablehash->{$table});
 		my ($base, $objfilter, $dnattbs, $allattbs, $alwaysinsert) = split(/\:/,$tablehash->{$table});
-		$columns =~ s/\s//g;
+		$columns =~ s/\s//go;
 		$columns ||= $allattbs;
-		$columns = join(',', @{ $self->{order} })  unless ($columns =~ /\S/);  #JWT
+		$columns = join(',', @{ $self->{order} })  unless ($columns =~ /\S/o);  #JWT
 
-		unless ($columns =~ /\S/)
+		unless ($columns =~ /\S/o)
 		{
 			return ($self->display_error (-509));
 		}
-		$values =~ s/\\\\/\x02/g;         #PROTECT "\\"
-		$values =~ s/\\\'/\x03/g;    #PROTECT '', AND \'.
+		$values =~ s/\\\\/\x02/go;         #PROTECT "\\"
+		$values =~ s/\\\'/\x03/go;    #PROTECT '', AND \'.
 
 		$values =~ s/\'(.*?)\'/
 				my ($j)=$1; 
-				$j=~s|,|\x04|g;         #PROTECT "," IN QUOTES.
+				$j=~s|,|\x04|go;         #PROTECT "," IN QUOTES.
 				"'$j'"
 		/eg;
-		@values = split(/,/,$values);
+		@values = split(/,/o, $values);
 		$values = '';
 		for $i (0..$#values)
 		{
-			$values[$i] =~ s/^\s+//;      #STRIP LEADING & TRAILING SPACES.
-			$values[$i] =~ s/\s+$//;
-			$values[$i] =~ s/\x03/\'/g;   #RESTORE PROTECTED SINGLE QUOTES HERE.
-			$values[$i] =~ s/\x02/\\/g;   #RESTORE PROTECTED SLATS HERE.
-			$values[$i] =~ s/\x04/,/g;    #RESTORE PROTECTED COMMAS HERE.
+			$values[$i] =~ s/^\s+//o;      #STRIP LEADING & TRAILING SPACES.
+			$values[$i] =~ s/\s+$//o;
+			$values[$i] =~ s/\x03/\'/go;   #RESTORE PROTECTED SINGLE QUOTES HERE.
+			$values[$i] =~ s/\x02/\\/go;   #RESTORE PROTECTED SLATS HERE.
+			$values[$i] =~ s/\x04/,/go;    #RESTORE PROTECTED COMMAS HERE.
 		}
 		chop($values);
 
@@ -992,12 +976,12 @@ sub insert_data
 	my (@columns, @attblist, $loop, $column, $j, $k);
 	$column_string =~ tr/A-Z/a-z/;
 	$dnattbs =~ tr/A-Z/a-z/;
-	@columns = split (/,/, $column_string);
+	@columns = split (/,/o, $column_string);
 
 	if ($#columns = $#values)
 	{
 		my $dn = '';
-		my @t = split(/,/, $dnattbs);
+		my @t = split(/,/o, $dnattbs);
 		while (@t)
 		{
 			$j = shift (@t);
@@ -1019,7 +1003,7 @@ J1:			for (my $i=0;$i<=$#columns;$i++)
 				}
 			}
 		}
-		$dn =~ s/\'//g;
+		$dn =~ s/\'//go;
 		$dn .= $base;
 		for (my $i=0;$i<=$#columns;$i++)
 		{
@@ -1027,7 +1011,7 @@ J1:			for (my $i=0;$i<=$#columns;$i++)
 			while (@l)
 			{
 				$j = shift(@l);
-				$j =~ s/^\'//;
+				$j =~ s/^\'//o;
 				$j =~ s/([^\\\'])\'$/$1/;
 				unless (!length($j) || $j eq "'" || $columns[$i] eq 'dn')
 				{
@@ -1040,10 +1024,10 @@ J1:			for (my $i=0;$i<=$#columns;$i++)
 #		$alwaysinsert .= ',' . $base;   #CHGD TO NEXT 200780719 PER REQUEST.
 		$alwaysinsert .= ',' . $base  if ($self->{ldap_appendbase2ins});
 		my ($i1, $found, $col, $vals, $j);
-		@_ = split(/\,\s*/, $alwaysinsert);
+		@_ = split(/\,\s*/o, $alwaysinsert);
 		while (@_)
 		{
-			($col, $vals) = split(/\=/, shift);
+			($col, $vals) = split(/\=/o, shift);
 			@l = split(/\Q$self->{ldap_inseparator}\E/, $vals);
 VALUE:				for (my $i=0;$i<=$#l;$i++)
 			{
@@ -1097,15 +1081,15 @@ sub pscolfn
 	my ($self,$id) = @_;
 	return $id  unless ($id =~ /CURVAL|NEXTVAL|ROWNUM/);
 	my ($value) = '';
-	my ($seq_file,$col) = split(/\./,$id);
+	my ($seq_file,$col) = split(/\./o, $id);
 	$seq_file = $self->get_path_info($seq_file) . '.seq';
 
 	$seq_file =~ tr/A-Z/a-z/  unless ($self->{CaseTableNames});  #JWT:TABLE-NAMES ARE NOW CASE-INSENSITIVE!
 	open (FILE, "<$seq_file") || return (-511);
 	$x = <FILE>;
 	#chomp($x);
-	$x =~ s/\s+$//;   #20000113
-	($incval, $startval) = split(/,/,$x);
+	$x =~ s/\s+$//o;   #20000113
+	($incval, $startval) = split(/,/o, $x);
 	close (FILE);
 	if ($id =~ /NEXTVAL/)
 	{

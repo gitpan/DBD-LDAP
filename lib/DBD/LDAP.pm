@@ -15,7 +15,7 @@ use vars qw($VERSION $err $errstr $state $sqlstate $drh $i $j $dbcnt);
 #@EXPORT = qw(
 	
 #);
-$VERSION = '0.09';
+$VERSION = '0.10';
 
 # Preloaded methods go here.
 
@@ -83,10 +83,12 @@ sub connect
 	}
 	while (/^\#/);
 
-	s#^(\w+)\:\/\/#$1\x02\/\/#;  #PROTECT COLON IN PROTOCOLS (ADDED ON)
-	s#\:(\d+)#\x02$1#g;         #PROTECT COLON BEFORE PORT#S (ADDED ON)
-	my ($ldap_hostname, $ldap_root, $ldap_loginrule) = split(/\:/);
+	s#^(\w+)\:\/\/#$1\x02\/\/#o;  #PROTECT COLON IN PROTOCOLS (ADDED ON)
+	s#\:(\d+)#\x02$1#go;         #PROTECT COLON BEFORE PORT#S (ADDED ON)
+	my ($ldap_hostname, $ldap_root, $ldap_loginrule) = split(/\:/o);
 	$ldap_hostname =~ s/\x02/\:/go;
+	$ldap_root = ''  unless (defined $ldap_root);   #THESE 2 LINES ADDED 20090914:
+	$ldap_loginrule = ''  unless (defined $ldap_loginrule);
 
 	my %ldap_tables;
 	my %ldap_ops;
@@ -94,11 +96,11 @@ sub connect
 	while (<DBFILE>)
 	{
 		chomp;
-		next  if (/^\#/);
-		my ($tablename,$basedn,$objclass,$dnattbs,$allattbs,$alwaysinsert,$dbdattbs) = split(/\:/,$_,7);
-		if ($ldap_root && $basedn !~ /\<ROOT\>i/)
+		next  if (/^\#/o);
+		my ($tablename,$basedn,$objclass,$dnattbs,$allattbs,$alwaysinsert,$dbdattbs) = split(/\:/o, $_,7);
+		if ($ldap_root && $basedn !~ /\<ROOT\>i/o)
 		{
-			$basedn .= ','  unless ($basedn !~ /\S/ || $basedn =~ /\,\s*$/);
+			$basedn .= ','  unless ($basedn !~ /\S/ || $basedn =~ /\,\s*$/o);
 			$basedn .= $ldap_root;
 		}
 		$ldap_tables{$tablename} = "$basedn:$objclass:$dnattbs:$allattbs:$alwaysinsert"  if ($tablename);
@@ -108,7 +110,7 @@ sub connect
 
 	#CREATE A 'BLANK' DBH
 
-	if ($dbuser && $ldap_loginrule =~ /\*/)
+	if ($dbuser && $ldap_loginrule =~ /\*/o)
 	{
 		$ldap_loginrule =~ s/\<root\>/$ldap_root/gi;
 		$_ = $dbuser;
@@ -131,11 +133,11 @@ sub connect
 	);
 
 	my $ldap_hostport = 389;
-	$ldap_hostport = $1  if ($ldap_hostname =~ s/\;(.*)$//);
+	$ldap_hostport = $1  if ($ldap_hostname =~ s/\;(.*)$//o);
 	my $ldap;
 	my @connectArgs = ($ldap_hostname);
-	push (@connectArgs, 'port', $ldap_hostport)  unless ($ldap_hostname =~ /\:\d+$/);
-	if ($ldap_hostname =~ /^ldaps/)
+	push (@connectArgs, 'port', $ldap_hostport)  unless ($ldap_hostname =~ /\:\d+$/o);
+	if ($ldap_hostname =~ /^ldaps/o)
 	{
 		unless (defined($attr->{ldaps_capath}) && -d $attr->{ldaps_capath})
 		{
@@ -300,7 +302,7 @@ sub prepare
 	my ($resptr, $sqlstr, $attribs) = @_;
 
 	local ($_);
-	$sqlstr =~ s/\n/ /g;
+	$sqlstr =~ s/\n/ /go;
 	
 	DBI::set_err($resptr, 0, '');
 	my $csr = DBI::_new_sth($resptr, {
@@ -323,7 +325,7 @@ sub prepare
 	$myldapref->{ldap_appendbase2ins} = $resptr->{ldap_attrhref}->{ldap_appendbase2ins}
 			? $resptr->{ldap_attrhref}->{ldap_appendbase2ins} : 0;
 
-	$sqlstr =~ /(into|from|update|table) \s*(\w+)/gi;
+	$sqlstr =~ /(into|from|update|table) \s*(\w+)/gio;
 	my ($tablename) = $2;
 	$csr->STORE('ldap_base', $tablename);
 	
@@ -331,7 +333,7 @@ sub prepare
 	my ($ldap_ops) = $resptr->FETCH('ldap_ops');
 	foreach my $i (keys %{$ldap_ops->{$tablename}})
 	{
-		$myldapref->{$i} = $ldap_ops->{$tablename}->{$i}  if ($i =~ /^ldap_/);
+		$myldapref->{$i} = $ldap_ops->{$tablename}->{$i}  if ($i =~ /^ldap_/o);
 	}
 	foreach my $i (qw(ldap_sizelimit ldap_timelimit ldap_scope deref typesonly 
 				callback))
@@ -347,7 +349,7 @@ sub prepare
 	$sqlstr =~ s/([\'\"])([^$1]*?)\?([^$1]*?$1)/$1$2\x02$3/g;  #PROTECT ? IN QUOTES (DATA)!
 
 	my $num_of_params = ($sqlstr =~ tr/?//);
-	$sqlstr =~ s/\x02/\?/g;
+	$sqlstr =~ s/\x02/\?/go;
 	$csr->STORE('NUM_OF_PARAMS', $num_of_params);	
 	$csr->STORE('ldap_dbh', $resptr);	
 	return ($csr);
@@ -382,7 +384,7 @@ sub commit
 						. $res->error . '!'));
 				return (undef);
 			}
-			if ($commitqueue->[0] =~ /^dn\=(.+)/)
+			if ($commitqueue->[0] =~ /^dn\=(.+)/o)
 			{
 				my $newdn = $1;
 				shift(@{$commitqueue});
@@ -432,7 +434,7 @@ sub STORE
 		$dbh->{AutoCommit} = $val;
 		return 1;
 	}
-	if ($attr =~ /^ldap/)
+	if ($attr =~ /^ldap/o)
 	{
 		# Handle only our private attributes here
 		# Note that we could trigger arbitrary actions.
@@ -449,7 +451,7 @@ sub FETCH
 {
 	my($dbh, $attr) = @_;
 	if ($attr eq 'AutoCommit') { return $dbh->{AutoCommit}; }
-	if ($attr =~ /^ldap_/)
+	if ($attr =~ /^ldap_/o)
 	{
 		# Handle only our private attributes here
 		# Note that we could trigger arbitrary actions.
@@ -550,7 +552,7 @@ sub execute
 
 	for (my $i=0;$i<=$#{$params};$i++)  #ADDED 20000303  FIX QUOTE PROBLEM WITH BINDS.
 	{
-		$params->[$i] =~ s/\'/\'\'/g;
+		$params->[$i] =~ s/\'/\'\'/go;
 	}
 
     my $numParam = $sth->FETCH('NUM_OF_PARAMS');
@@ -564,14 +566,14 @@ sub execute
     my $sqlstr = $sth->{'Statement'};
 
 	#NEXT 8 LINES ADDED 20010911 TO FIX BUG WHEN QUOTED VALUES CONTAIN "?"s.
-    $sqlstr =~ s/\\\'/\x03/g;      #PROTECT ESCAPED DOUBLE-QUOTES.
-    $sqlstr =~ s/\'\'/\x04/g;      #PROTECT DOUBLED DOUBLE-QUOTES.
+    $sqlstr =~ s/\\\'/\x03/go;      #PROTECT ESCAPED DOUBLE-QUOTES.
+    $sqlstr =~ s/\'\'/\x04/go;      #PROTECT DOUBLED DOUBLE-QUOTES.
 	$sqlstr =~ s/\'([^\']*?)\'/
 			my ($str) = $1;
 			$str =~ s|\?|\x02|g;   #PROTECT QUESTION-MARKS WITHIN QUOTES.
 			"'$str'"/eg;
-	$sqlstr =~ s/\x04/\'\'/g;      #UNPROTECT DOUBLED DOUBLE-QUOTES.
-	$sqlstr =~ s/\x03/\\\'/g;      #UNPROTECT ESCAPED DOUBLE-QUOTES.
+	$sqlstr =~ s/\x04/\'\'/go;      #UNPROTECT DOUBLED DOUBLE-QUOTES.
+	$sqlstr =~ s/\x03/\\\'/go;      #UNPROTECT ESCAPED DOUBLE-QUOTES.
 
 	#CONVERT REMAINING QUESTION-MARKS TO BOUND VALUES.
 
@@ -631,16 +633,22 @@ sub execute
     
 	shift @resv;   #REMOVE 1ST COLUMN FROM DATA RETURNED (THE LDAP RESULT).
 
-	my @l = split(/,/,$ldapref->{use_fields});
+	my @l = split(/,/o, $ldapref->{use_fields});
     $sth->STORE('NUM_OF_FIELDS',($#l+1));
 	unless ($ldapref->{TYPE})
 	{
 		@{$ldapref->{NAME}} = @l;
 		for my $i (0..$#l)
 		{
-			${$ldapref->{TYPE}}[$i] = $typehash{${$ldapref->{types}}{$l[$i]}};
-			${$ldapref->{PRECISION}}[$i] = ${$ldapref->{lengths}}{$l[$i]};
-			${$ldapref->{SCALE}}[$i] = ${$ldapref->{scales}}{$l[$i]};
+			${$ldapref->{TYPE}}[$i] = (defined($ldapref->{'types'}) 
+					&& (ref $ldapref->{'types'}) eq 'SCALAR')
+				? $typehash{${$ldapref->{'types'}}{$l[$i]}} : 12;
+			${$ldapref->{PRECISION}}[$i] = (defined($ldapref->{'lengths'}) 
+					&& (ref $ldapref->{'lengths'}) eq 'SCALAR') 
+				? ${$ldapref->{'lengths'}}{$l[$i]} : 255;
+			${$ldapref->{SCALE}}[$i] = (defined($ldapref->{'scales'}) 
+					&& (ref $ldapref->{'scales'}) eq 'SCALAR')
+				? ${$ldapref->{'scales'}}{$l[$i]} : 0;
 			${$ldapref->{NULLABLE}}[$i] = 1;
 			#${$ldapref->{TYPE}}[$i] = 12;   #VARCHAR
 			##${$ldapref->{TYPE}}[$i] = -1;   #VARCHAR   #NEXT 4 REPLACED BY 1ST 4 PER REQUEST BY jmorano.
@@ -687,14 +695,14 @@ sub fetchrow_arrayref
 					$row->[$i] = $t;
 				}
 			}
-			map { $_ =~ s/\s+$//; } @$row;
+			map { $_ =~ s/\s+$//o; } @$row;
 		}
 	}
 	else
 	{
 		if ($sth->FETCH('ChopBlanks'))
 		{
-			map { $_ =~ s/\s+$//; } @$row;
+			map { $_ =~ s/\s+$//o; } @$row;
 		}
 	}
 
@@ -719,7 +727,7 @@ sub STORE
 		$dbh->{AutoCommit} = $val;
 		return 1;
 	}
-	if ($attr =~ /^ldap/)
+	if ($attr =~ /^ldap/o)
 	{
 		# Handle only our private attributes here
 		# Note that we could trigger arbitrary actions.
@@ -736,7 +744,7 @@ sub FETCH
 {
 	my($dbh, $attr) = @_;
 	if ($attr eq 'AutoCommit') { return $dbh->{AutoCommit}; }
-	if ($attr =~ /^ldap_/)
+	if ($attr =~ /^ldap_/o)
 	{
 		# Handle only our private attributes here
 		# Note that we could trigger arbitrary actions.
