@@ -43,3 +43,24 @@ Revision history for Perl extension DBD::Ldap.
 	  clause without parenthesis to generate invalid filters, ie:
 	  "where a and b and c".  Also added "o" option to numerous regices 
 	  that do not contain variables to optimize for speed.
+0.21	Thu Nov 5 2009
+	- Fix bug that prevented query field data from containing escaped single 
+	  quotes.  Note:  Perl generally requires a double-backslash to 
+	  preceed the quote in order to pas the escape on to LDAP.
+	- Fix "warning" issue where "AutoCommit" was reported as not being 
+	  implemented in the driver, particularly when "-w" (Perl warnings 
+	  turned on).
+	- Improved general error-message reporting, particulary by connect(), 
+	  prepare(), and execute() functions.
+	- Changed the call to Net::LDAP's get() function to get_value() per 
+	  patch by Gab. Korsani.  Thanks Gab, and also for providing me with 
+	  a working LDAP server to test against!
+	- Added DBI's "primary_key_info" query.
+	- Fixed unimplemented, but valid SQL "create table", "alter table", and 
+	  "drop table" calls to return zero instead of error.
+	- Optimized many regices.
+	- Fixed some minor issues with AutoCommit - when AutoCommit is OFF, and 
+	  one exits without calling commit(), anything done since the previous 
+	  commit() call should now be rolled back.
+	- TYPE and PRECISION, etc. data are now properly returned (as 
+	  VARCHAR(255)) for all fields.

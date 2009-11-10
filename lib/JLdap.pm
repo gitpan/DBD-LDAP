@@ -6,6 +6,7 @@ require 5.002;
 
 use Net::LDAP::Entry;
 use vars qw($VERSION);
+no warnings qw (uninitialized);
 
 #use Fcntl; 
 
@@ -16,10 +17,10 @@ use vars qw($VERSION);
 use vars qw ($VERSION);
 ##--
 
-$JLdap::VERSION = '0.10';
+$JLdap::VERSION = '0.20';
 
 #my $NUMERICTYPES = '^(NUMBER|FLOAT|DOUBLE|INT|INTEGER|NUM)$';       #20000224
-#my $STRINGTYPES = '^(VARCHAR2|CHAR|VARCHAR|DATE|LONG|BLOB|MEMO)$';
+#my $STRINGTYPES = '^(VARCHAR|CHAR|VARCHAR|DATE|LONG|BLOB|MEMO)$';
 
 ##++
 ##  Public Methods and Constructor
@@ -31,7 +32,7 @@ sub new
     my $self;
 
     $self = {
-                commands     => 'select|update|delete|alter|insert|create|drop',
+                commands     => 'select|update|delete|alter|insert|create|drop|primary_key_info',
                 column       => '[A-Za-z0-9\~\x80-\xFF][\w\x80-\xFF]+',
 		_select      => '[\w\x80-\xFF\*,\s\~]+',
 		path         => '[\w\x80-\xFF\-\/\.\:\~\\\\]+',
@@ -91,10 +92,11 @@ sub sql
 	my ($self, $csr, $query) = @_;
 
 	my ($command, $status, $base, $fields);
+#print STDERR "-sql1($command,$status,$base,$fields)";
 	return wantarray ? () : -514  unless ($query);
 	$self->{lasterror} = 0;
 	$self->{lastmsg} = '';
-	$query   =~ s/\n/ /gs;
+	$query   =~ s/\n/ /gso;
 	$query   =~ s/^\s*(.*?)\s*$/$1/;
 	$query = 'select tables'  if ($query =~ /^show\s+tables$/i);
 	$query = 'select tables'  if ($query =~ /^select\s+TABLE_NAME\s+from\s+USER_TABLES$/i);  #ORACLE-COMPATABILITY.
@@ -105,7 +107,12 @@ sub sql
 		$command = $1;
 		$command =~ tr/A-Z/a-z/;    #ADDED 19991202!
 		$status  = $self->$command ($csr, $query);
-		if (ref ($status) eq 'ARRAY')   #SELECT RETURNED OK (LIST OF RECORDS).
+		if (!defined($status))      #NEXT 5 ADDED PER PATCH REQUEST 20091101:
+		{
+			$self->display_error(-599);
+			return wantarray ? () : -599;
+		}
+		elsif (ref ($status) eq 'ARRAY')   #SELECT RETURNED OK (LIST OF RECORDS).
 		{
 			return wantarray ? @$status : $status;
 		}
@@ -113,12 +120,14 @@ sub sql
 		{
 			if ($status < 0)
 			{             #SQL RETURNED AN ERROR!
+#print STDERR "-sql6 status=$status=\n";
 				$self->display_error ($status);
 				#return ($status);
 				return wantarray ? () : $status;
 			}
 			else
 			{                        #SQL RETURNED OK.
+#print STDERR "-sql7 status=$status= at=$@= cash=$_= bang=$!= query=$?=\n";
 				return wantarray ? ($status) : $status;
 			}
 		}
@@ -248,21 +257,16 @@ sub select
 			$i = 0;
 			foreach my $attr (@{$self->{order}})
 			{
-#				$valuesref = $entry->get($attr);   #CHGD. TO NEXT 20090914 PER PATCH FROM G. KORSANI:
-				$valuesref = $entry->get_value($attr);
+#				$valuesref = $entry->get($attr);   #CHGD. TO NEXT PER PATCH REQUEST 20091101:
+				$valuesref = $entry->get_value($attr, asref => 1);
 				if ($self->{ldap_firstonly} && $self->{ldap_firstonly} <= scalar (@{$valuesref}))
 				{
 					#$varlist[$j][$fieldnamehash{$attr}] = join($self->{ldap_outseparator}, $valuesref->[0]); #CHGD. 20010829 TO NEXT.
 					$varlist[$j][$fieldnamehash{$attr}] = join($self->{ldap_outseparator}, @{$valuesref}[0..($self->{ldap_firstonly}-1)]);
 				}
-#				else         #CHGD. TO NEXT 20090914 PER PATCH FROM G. KORSANI:
-				elsif (defined $valuesref)
+				else
 				{
 					$varlist[$j][$fieldnamehash{$attr}] = join($self->{ldap_outseparator}, @$valuesref) || '';
-				}
-				else         #ADDED 20090914 PER PATCH FROM G. KORSANI
-				{
-					$varlist[$j][$fieldnamehash{$attr}] = '';
 				}
 				unless ($valuesref[0])
 				{
@@ -367,15 +371,15 @@ sub sort_elements
 
 sub ldap_error
 {
-	my ($self,$errcode,$errmsg,$whichone) = @_;
+	my ($self,$errcode,$errmsg,$warn) = @_;
 
 	$err = $errcode || -1;
 	$errdetails = $errmsg;
 	$err = -1 * $err  if ($err > 0);
-	return ($err)  unless ($warn);
+	return ($err)  unless (defined($warn) && $warn);
 
-	print "Content-type: text/html\nWindow-target: _parent", "\n\n"  
-			if ($warn == 1);
+#	print "Content-type: text/html\nWindow-target: _parent", "\n\n"  
+#			if (defined($warn) && $warn == 1);
 
 	return ($self->display_error($errcode));
 }
@@ -506,7 +510,7 @@ sub parse_expression
 		#$QS[$i] =~ s/\\x(\d\d)/\\$1/g;   #CONVERT PERL HEX TO LDAP HEX (\X## => \##).
 		$QS[$i] =~ s/\x05([\da-fA-F][\da-fA-F])/\\$1/go;   #CONVERT PERL HEX TO LDAP HEX (\X## => \##).
 	}
-
+#print STDERR "-parse_expression: QS list=".join('|',@QS)."=   SSSS=$s=\n";
 	$indx = 0;	
 
 	#I TRIED TO ALLOWING ATTRIBUTES TO BE COMPARED W/OTHER ATTRIBUTES, BUT 
@@ -607,9 +611,10 @@ sub rollback
 sub update
 {
 	my ($self, $csr, $query) = @_;
-	my ($i, $path, $regex, $table, $extra, @attblist, $filter, $all_columns, $status);
+	my ($i, $path, $regex, $table, $extra, @attblist, $filter, $all_columns);
+	my $status = 0;
 	my ($psuedocols) = "CURVAL|NEXTVAL|ROWNUM";
-
+#print STDERR "-update10 sql=$query=\n";
     ##++
     ##  Hack to allow parenthesis to be escaped!
     ##--
@@ -618,14 +623,14 @@ sub update
 	$path  =  $self->{path};
 	$regex =  $self->{column};
 
-	if ($query =~ /^update\s+($path)\s+set\s+(.+)$/io)
+	if ($query =~ /^update\s+($path)\s+set\s+(.+)$/i)
 	{
 		($table, $extra) = ($1, $2);
-
+#print STDERR "-update20: table=$table= extra=$extra=\n";
 		#ADDED IF-STMT 20010418 TO CATCH 
 		#PARENTHESIZED SET-CLAUSES (ILLEGAL IN ORACLE & CAUSE WIERD PARSING ERRORS!)
 
-		if ($extra =~ /^\(.+\)\s*where/o)
+		if ($extra =~ /^\(.+\)\s*where/io)
 		{
 			$errdetails = 'parenthesis around SET clause?';
 			return (-504);
@@ -653,39 +658,42 @@ sub update
 		$column = $self->{column};
 		$extra =~ s/($column\s*\=\s*)\'(.*?)\'(,|$)/
 				my ($one,$two,$three) = ($1,$2,$3);
-				$two =~ s|\,|\x05|g;
-				$two =~ s|\(|\x06|g;
-				$two =~ s|\)|\x07|g;
+				$two =~ s|\,|\x05|go;
+				$two =~ s|\(|\x06|go;
+				$two =~ s|\)|\x07|go;
 				$one."'".$two."'".$three;
 		/eg;
 
 		1 while ($extra =~ s/\(([^\(\)]*)\)/
 				my ($args) = $1;
-				$args =~ s|\,|\x05|g;
+				$args =~ s|\,|\x05|go;
 				"\x06$args\x07";
 		/eg);
 		@expns = split(',',$extra);
+#print STDERR "-update50: extra=$extra= expns=".join('|',@expns)."=\n";
 		for ($i=0;$i<=$#expns;$i++)  #PROTECT "WHERE" IN QUOTED VALUES.
 		{
-			$expns[$i] =~ s/\x05/,/go;
+			$expns[$i] =~ s/\x05/\,/go;
 			$expns[$i] =~ s/\x06/\(/go;
 			$expns[$i] =~ s/\x07/\)/go;
 			$expns[$i] =~ s/\=\s*'([^']*?)where([^']*?)'/\='$1\x05$2'/gi;
 			$expns[$i] =~ s/\'(.*?)\'/my ($j)=$1; 
-					$j=~s|where|\x05|g; 
+					$j=~s|where|\x05|gio; 
 					"'$j'"
 			/eg;
 		}
 		$extra = $expns[$#expns];    #EXTRACT WHERE-CLAUSE, IF ANY.
 		$filter = ($extra =~ s/(.*)where(.+)$/where$1/i) ? $2 : '';
 		$filter =~ s/\s+//o;
-		$expns[$#expns] =~ s/\s*where(.+)$//i;   #20000108 REP. PREV. LINE 2FIX BUG IF LAST COLUMN CONTAINS SINGLE QUOTES.
+		$expns[$#expns] =~ s/\s*where(.+)$//io;   #20000108 REP. PREV. LINE 2FIX BUG IF LAST COLUMN CONTAINS SINGLE QUOTES.
 		$column = $self->{column};
 		$objfilter ||= 'objectclass=*';
 		$objfilter = "($objfilter)"  unless ($objfilter =~ /^\(/o);
 		if ($filter)
 		{
+#print STDERR "--update: BEF parse_expn: filter=$filter=\n";
 			$filter = $self->parse_expression ($filter);
+#print STDERR "--update: AFT parse_expn: filter=$filter= objfilter=$objfilter=\n";
 			$filter = '('.$filter.')'  unless ($filter =~ /^\(/o);
 			$filter = "(&$objfilter$filter)";
 		}
@@ -693,6 +701,8 @@ sub update
 		{
 			$filter = "$objfilter";
 		}
+	$filter =~ s/\x03/\\\'/go;    #UNPROTECT '', AND \'.  #NEXT 2 ADDED 20091101:
+	$filter =~ s/\x02/\\\\/go;    #UNPROTECT "\\".
 #		$alwaysinsert .= ',' . $base;   #CHGD TO NEXT 200780719 PER REQUEST.
 		$alwaysinsert .= ',' . $base  if ($self->{ldap_appendbase2ins});
 		$alwaysinsert =~ s/\\\\/\x02/go;   #PROTECT "\\"
@@ -733,11 +743,13 @@ VALUE:							for (my $j=0;$j<=$#l;$j++)
 						}
 					}
 					$all_columns->{$var} =~ s/\x02/\\\\/go;
-					$all_columns->{$var} =~ s/\x03/\'/go;   #20000108 REPL. PREV. LINE - NO NEED TO DOUBLE QUOTES (WE ESCAPE THEM) - THIS AIN'T ORACLE.
+#					$all_columns->{$var} =~ s/\x03/\'/go;   #20091030: REPL. W.NEXT LINE TO KEEP ESCAPE SLASH "\" - RETAIN ORIG. COMMENT:
+					$all_columns->{$var} =~ s/\x03/\\\'/go;   #20000108 REPL. PREV. LINE - NO NEED TO DOUBLE QUOTES (WE ESCAPE THEM) - THIS AIN'T ORACLE.
 			!e;
 		}
 
 		delete $all_columns->{dn};   #DO NOT ALLOW DN TO BE CHANGED DIRECTLY!
+#foreach my $xxx (sort keys %{$all_columns}) { print STDERR "---data($xxx)=".$all_columns->{$xxx}."=\n"; };
 		my ($data);
 		my (@searchops) = (
 				'base' => $base,
@@ -751,16 +763,20 @@ VALUE:							for (my $j=0;$j<=$#l;$j++)
 			push (@searchops, ($j, $self->{$i}))  if ($self->{$i});
 		}
 		push (@searchops, ('scope', ($self->{ldap_scope} || 'one')));
+#print STDERR "-update: filter=$filter= searchops=".join('|',@searchops)."=\n";
 		$data = $ldap->search(@searchops) 
 				or return($self->ldap_error($@,"Search failed to return object: filter=$filter (".$data->error().")"));
+#print STDERR "-update:  got thru search; data=$data=\n";
 		my (@varlist) = ();
 		$dbh = $csr->FETCH('ldap_dbh');
 		my ($autocommit) = $dbh->FETCH('AutoCommit');
 		my ($commitqueue) = $dbh->FETCH('ldap_commitqueue')  unless ($autocommit);
 		my (@dnattbs) = split(/\,/o, $dnattbs);
 		my ($changedn);
+#print STDERR "-update:  going into loop!\n";
 		while (my $entry = $data->shift_entry())
 		{
+#print STDERR "----update: in loop entry=$entry=\n";
 			$dn = $entry->dn();
 			$dn =~ s/\\/\x02/go;     #PROTECT "\";
 			$dn =~ s/\\\,/\x03/go;   #PROTECT "\,";
@@ -798,6 +814,7 @@ I:			foreach my $i (@dnattbs)
 				}
 			}
 			$r1 = $entry->replace(@attblist);
+#print STDERR "-update: r1=$r1= attblist=".join('|',@attblist)."=\n";
 			if ($r1 > 0)
 			{
 				if ($autocommit)
@@ -844,7 +861,8 @@ I:			foreach my $i (@dnattbs)
 sub delete 
 {
 	my ($self, $csr, $query) = @_;
-	my ($path, $table, $filter, $status, $wherepart);
+	my ($path, $table, $filter, $wherepart);
+	my $status = 0;
 
 	$path = $self->{path};
 	if ($query =~ /^delete\s+from\s+($path)(?:\s+where\s+(.+))?$/io)
@@ -909,6 +927,59 @@ sub delete
 	{
 		return (-505);
 	}
+}
+
+sub primary_key_info
+{
+	my ($self, $csr, $query) = @_;
+	my $table = $query;
+	$table =~ s/^.*\s+(\w+)$/$1/;
+	$table =~ tr/A-Z/a-z/  unless ($self->{CaseTableNames});  #JWT:TABLE-NAMES ARE NOW CASE-INSENSITIVE!
+	$self->{file} = $table;
+	my ($dbh) = $csr->FETCH('ldap_dbh');
+	my $tablehash = $dbh->FETCH('ldap_tables');
+	return -524  unless ($tablehash->{$table});
+
+	undef %{ $self->{types} };
+	undef %{ $self->{lengths} };
+	$self->{use_fields} = 'CAT,SCHEMA,TABLE_NAME,PRIMARY_KEY';
+	$self->{order} = [ 'CAT', 'SCHEMA', 'TABLE_NAME', 'PRIMARY_KEY' ];
+	$self->{fields}->{CAT} = 1;
+	$self->{fields}->{SCHEMA} = 1;
+	$self->{fields}->{TABLE_NAME} = 1;
+	$self->{fields}->{PRIMARY_KEY} = 1;
+	undef @{ $self->{records} };
+	my (@keyfields) = split(/\,\s*/o, $self->{key_fields});  #JWT: PREVENT DUP. KEYS.
+	${$self->{types}}{CAT} = 'VARCHAR';
+	${$self->{types}}{SCHEMA} = 'VARCHAR';
+	${$self->{types}}{TABLE_NAME} = 'VARCHAR';
+	${$self->{types}}{PRIMARY_KEY} = 'VARCHAR';
+	${$self->{lengths}}{CAT} = 50;
+	${$self->{lengths}}{SCHEMA} = 50;
+	${$self->{lengths}}{TABLE_NAME} = 50;
+	${$self->{lengths}}{PRIMARY_KEY} = 50;
+	${$self->{defaults}}{CAT} = undef;
+	${$self->{defaults}}{SCHEMA} = undef;
+	${$self->{defaults}}{TABLE_NAME} = undef;
+	${$self->{defaults}}{PRIMARY_KEY} = undef;
+	${$self->{scales}}{PRIMARY_KEY} = 50;
+	${$self->{scales}}{PRIMARY_KEY} = 50;
+	${$self->{scales}}{PRIMARY_KEY} = 50;
+	${$self->{scales}}{PRIMARY_KEY} = 50;
+	my $results;
+	my $keycnt = scalar(@keyfields);
+	while (@keyfields)
+	{
+		push (@{$results}, [0, 0, $table, shift(@keyfields)]);
+	}
+	unshift (@$results, $keycnt);
+	return $results;
+}
+
+sub alter    #SQL COMMAND NOT IMPLEMENTED.
+{
+	$@ = 'SQL "alter" command is not (yet) implemented!';
+	return 0;
 }
 
 sub insert
@@ -976,7 +1047,7 @@ sub insert_data
 	my (@columns, @attblist, $loop, $column, $j, $k);
 	$column_string =~ tr/A-Z/a-z/;
 	$dnattbs =~ tr/A-Z/a-z/;
-	@columns = split (/,/o, $column_string);
+	@columns = split (/\,/o, $column_string);
 
 	if ($#columns = $#values)
 	{
@@ -1076,6 +1147,18 @@ VALUE:				for (my $i=0;$i<=$#l;$i++)
 	}
 }						    
 
+sub create    #SQL COMMAND NOT IMPLEMENTED.
+{
+	$@ = 'SQL "create" command is not (yet) implemented!';
+	return 0;
+}
+
+sub drop    #SQL COMMAND NOT IMPLEMENTED.
+{
+	$@ = 'SQL "drop" command is not (yet) implemented!';
+	return 0;
+}
+
 sub pscolfn
 {
 	my ($self,$id) = @_;
@@ -1089,9 +1172,9 @@ sub pscolfn
 	$x = <FILE>;
 	#chomp($x);
 	$x =~ s/\s+$//o;   #20000113
-	($incval, $startval) = split(/,/o, $x);
+	($incval, $startval) = split(/\,/o, $x);
 	close (FILE);
-	if ($id =~ /NEXTVAL/)
+	if ($id =~ /NEXTVAL/o)
 	{
 		open (FILE, ">$seq_file") || return (-511);
 		$incval += ($startval || 1);
